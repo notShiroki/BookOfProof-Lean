@@ -1,4 +1,4 @@
-name: Sync Notes to Main Vault via PR
+name: Sync Notes to Main Vault
 
 on:
   push:
@@ -18,7 +18,7 @@ jobs:
       VAULT_TARGET_REPO: notShiroki/notShiroki
 
     steps:
-      # 0. Quick PAT presence & basic health check
+      # 0. Quick VAULT_PAT presence & basic health check
       - name: Check VAULT_PAT presence and access
         run: |
           if [ -z "${{ secrets.VAULT_PAT }}" ]; then
@@ -53,7 +53,7 @@ jobs:
           token: ${{ secrets.VAULT_PAT }}
           path: vault-repo
 
-      # 3. Rsync this project's notes into the vault math/<Project>_Notes folder
+      # 3. Rsync this project's notes into vault math/<Project>_Notes folder
       - name: Sync Notes into Vault repo
         run: |
           mkdir -p "vault-repo/math/${PROJECT_NOTES_FOLDER}"
@@ -61,28 +61,25 @@ jobs:
             "lean-repo/obsidian/${PROJECT_NOTES_FOLDER}/" \
             "vault-repo/math/${PROJECT_NOTES_FOLDER}/"
 
-      # 4. Open or update a PR in the vault repo
-      - name: Create/Update PR in Vault
-        uses: peter-evans/create-pull-request@v6
-        with:
-          token: ${{ secrets.VAULT_PAT }}
-          path: vault-repo
-          commit-message: "Sync notes from ${{ env.PROJECT_NAME }}-Lean"
-          branch: "sync/${{ env.PROJECT_NAME }}-notes"
-          title: "Sync ${{ env.PROJECT_NAME }} notes from Lean project"
-          body: |
-            This PR syncs notes from **${{ env.PROJECT_NAME }}-Lean** into:
-            `math/${{ env.PROJECT_NOTES_FOLDER }}/`.
+      # 4. Commit and push the updated notes directly to vault main
+      - name: Commit and Push to Vault
+        run: |
+          cd vault-repo
 
-            - Trigger commit: ${{ github.event.head_commit.id }}
-            - Source repo: ${{ github.repository }}
-            - Source branch: ${{ github.ref_name }}
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
 
-            Please verify:
-            - [ ] Notes render correctly in Obsidian
-            - [ ] Token is still valid (sync + PR Health Check green)
-            - [ ] No unintended deletions outside `math/${{ env.PROJECT_NOTES_FOLDER }}/`
+          git add "math/${PROJECT_NOTES_FOLDER}/"
 
-          labels: sync, notes, ${{ env.PROJECT_NAME }}
-          author: "github-actions[bot] <github-actions[bot]@users.noreply.github.com>"
-          committer: "github-actions[bot] <github-actions[bot]@users.noreply.github.com>"
+          if git diff --staged --quiet; then
+            echo "No changes to sync."
+            exit 0
+          fi
+
+          MSG="Auto-sync Lean notes from ${PROJECT_NAME}: ${{ github.event.head_commit.message }}"
+          echo "Committing with message: $MSG"
+          git commit -m "$MSG"
+
+          # Try to stay up-to-date; ignore if there is nothing to pull
+          git pull --rebase origin main || true
+          git push origin main
