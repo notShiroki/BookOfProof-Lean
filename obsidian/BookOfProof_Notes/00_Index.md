@@ -32,3 +32,5 @@ SS
 
 # 17:36
 Test after latest update on sync_notes.yml before actual mathematical learning with MinerU
+
+2
