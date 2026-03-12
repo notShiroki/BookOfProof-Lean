@@ -25,4 +25,4 @@ questions. theorem. object .dependencies. learn . actual lean code
 test
 
 # 16:22
-test rollback sync
+test rollback sync s
