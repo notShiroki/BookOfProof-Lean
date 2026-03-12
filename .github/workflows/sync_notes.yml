@@ -1,0 +1,57 @@
+name: Sync Notes to Main Vault
+
+# Trigger when changes are pushed to the main branch, but ONLY if files in the obsidian/ folder changed
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "obsidian/**"
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      # 1. Checkout Repo B (Lean Project)
+      - name: Checkout Lean Project
+        uses: actions/checkout@v4
+        with:
+          path: lean-repo
+
+      # 2. Checkout Repo A (Main Obsidian Vault) using the PAT
+      - name: Checkout Main Obsidian Vault
+        uses: actions/checkout@v4
+        with:
+          repository: "YOUR_USERNAME/Main-Obsidian-Vault" # <--- UPDATE THIS
+          token: ${{ secrets.VAULT_PAT }}
+          path: vault-repo
+
+      # 3. Rsync the notes folder into the vault's math directory
+      - name: Sync Folders
+        run: |
+          # Ensure the target folder exists in Repo A
+          mkdir -p vault-repo/math/BookOfProof_Notes
+
+          # Sync Repo B (obsidian/BookOfProof_Notes/) -> Repo A (math/BookOfProof_Notes/)
+          # --delete ensures files deleted in Repo B are also deleted in Repo A
+          rsync -av --delete lean-repo/obsidian/BookOfProof_Notes/ vault-repo/math/BookOfProof_Notes/
+
+      # 4. Commit and push the updated notes to Repo A
+      - name: Commit and Push to Vault
+        run: |
+          cd vault-repo
+
+          # Configure GitHub Actions bot identity
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Stage the changes in the target math directory
+          git add math/BookOfProof_Notes/
+
+          # Only commit if there are actual changes
+          if ! git diff --staged --quiet; then
+            git commit -m "Auto-sync Lean notes from BookOfProof: ${{ github.event.head_commit.message }}"
+            git push origin main
+          else
+            echo "No changes to sync."
+          fi
