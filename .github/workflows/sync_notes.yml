@@ -1,6 +1,5 @@
 name: Sync Notes to Main Vault
 
-# Trigger when changes are pushed to the main branch, but ONLY if files in the obsidian/ folder changed
 on:
   push:
     branches:
@@ -11,47 +10,76 @@ on:
 jobs:
   sync:
     runs-on: ubuntu-latest
+
+    env:
+      # --- Customize these per Lean repo ---
+      PROJECT_NAME: BookOfProof # e.g. BookOfProof, Topology
+      PROJECT_NOTES_FOLDER: BookOfProof_Notes # obsidian subfolder name
+      VAULT_TARGET_REPO: notShiroki/notShiroki
+
     steps:
-      # 1. Checkout Repo B (Lean Project)
+      # 0. Quick VAULT_PAT presence & basic health check
+      - name: Check VAULT_PAT presence and access
+        run: |
+          if [ -z "${{ secrets.VAULT_PAT }}" ]; then
+            echo "❌ VAULT_PAT is not set in Lean repo secrets."
+            exit 1
+          fi
+
+          echo "Checking VAULT_PAT access to ${{ env.VAULT_TARGET_REPO }}..."
+          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "Authorization: Bearer ${{ secrets.VAULT_PAT }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            https://api.github.com/repos/${{ env.VAULT_TARGET_REPO }})
+
+          if [ "$HTTP_STATUS" -eq 200 ]; then
+            echo "✅ VAULT_PAT is valid for ${{ env.VAULT_TARGET_REPO }}"
+          else
+            echo "❌ VAULT_PAT cannot access ${{ env.VAULT_TARGET_REPO }}. Status: $HTTP_STATUS"
+            exit 1
+          fi
+
+      # 1. Checkout this Lean project
       - name: Checkout Lean Project
         uses: actions/checkout@v4
         with:
           path: lean-repo
 
-      # 2. Checkout Repo A (Main Obsidian Vault) using the PAT
+      # 2. Checkout Main Obsidian Vault using the PAT
       - name: Checkout Main Obsidian Vault
         uses: actions/checkout@v4
         with:
-          repository: "YOUR_USERNAME/Main-Obsidian-Vault" # <--- UPDATE THIS
+          repository: ${{ env.VAULT_TARGET_REPO }}
           token: ${{ secrets.VAULT_PAT }}
           path: vault-repo
 
-      # 3. Rsync the notes folder into the vault's math directory
-      - name: Sync Folders
+      # 3. Rsync this project's notes into vault math/<Project>_Notes folder
+      - name: Sync Notes into Vault repo
         run: |
-          # Ensure the target folder exists in Repo A
-          mkdir -p vault-repo/math/BookOfProof_Notes
+          mkdir -p "vault-repo/math/${PROJECT_NOTES_FOLDER}"
+          rsync -av --delete \
+            "lean-repo/obsidian/${PROJECT_NOTES_FOLDER}/" \
+            "vault-repo/math/${PROJECT_NOTES_FOLDER}/"
 
-          # Sync Repo B (obsidian/BookOfProof_Notes/) -> Repo A (math/BookOfProof_Notes/)
-          # --delete ensures files deleted in Repo B are also deleted in Repo A
-          rsync -av --delete lean-repo/obsidian/BookOfProof_Notes/ vault-repo/math/BookOfProof_Notes/
-
-      # 4. Commit and push the updated notes to Repo A
+      # 4. Commit and push the updated notes directly to vault main
       - name: Commit and Push to Vault
         run: |
           cd vault-repo
 
-          # Configure GitHub Actions bot identity
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          # Stage the changes in the target math directory
-          git add math/BookOfProof_Notes/
+          git add "math/${PROJECT_NOTES_FOLDER}/"
 
-          # Only commit if there are actual changes
-          if ! git diff --staged --quiet; then
-            git commit -m "Auto-sync Lean notes from BookOfProof: ${{ github.event.head_commit.message }}"
-            git push origin main
-          else
+          if git diff --staged --quiet; then
             echo "No changes to sync."
+            exit 0
           fi
+
+          MSG="Auto-sync Lean notes from ${PROJECT_NAME}: ${{ github.event.head_commit.message }}"
+          echo "Committing with message: $MSG"
+          git commit -m "$MSG"
+
+          # Try to stay up-to-date; ignore if there is nothing to pull
+          git pull --rebase origin main || true
+          git push origin main
