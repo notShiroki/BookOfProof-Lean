@@ -22,7 +22,7 @@ jobs:
       - name: Checkout Main Obsidian Vault
         uses: actions/checkout@v4
         with:
-          repository: "YOUR_USERNAME/Main-Obsidian-Vault" # <--- UPDATE THIS
+          repository: "notShiroki/notShiroki" # <--- UPDATE THIS
           token: ${{ secrets.VAULT_PAT }}
           path: vault-repo
 
